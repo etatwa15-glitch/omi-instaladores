@@ -1,9 +1,9 @@
-name: Publish OMI 0.1.17 for Windows
+name: Publish OMI 0.1.19 for Windows
 
 on:
   push:
     paths:
-      - 'build-input/OMI-windows-0.1.17.zip'
+      - 'build-input/OMI-windows-0.1.19.zip'
       - '.github/workflows/publish-windows.yml'
   workflow_dispatch:
 
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: windows-release-0.1.17
+  group: windows-release-0.1.19
   cancel-in-progress: false
 
 jobs:
@@ -29,12 +29,13 @@ jobs:
       - name: Verify and unpack compiled application
         shell: pwsh
         run: |
-          $archive = 'build-input/OMI-windows-0.1.17.zip'
-          $expected = ((Get-Content 'build-input/OMI-windows-0.1.17.sha256' -Raw).Trim() -split '\s+')[0]
+          $archive = 'build-input/OMI-windows-0.1.19.zip'
+          $expected = ((Get-Content 'build-input/OMI-windows-0.1.19.sha256' -Raw).Trim() -split '\s+')[0]
           if ((Get-FileHash $archive -Algorithm SHA256).Hash -ine $expected) { throw 'Build input hash mismatch' }
           Expand-Archive -LiteralPath $archive -DestinationPath app
           [IO.File]::WriteAllText((Join-Path $PWD 'app/package.json'), (Get-Content 'app/package.json' -Raw).TrimStart([char]0xFEFF), [Text.UTF8Encoding]::new($false))
-          if ((Get-Content app/package.json -Raw | ConvertFrom-Json).version -ne '0.1.17') { throw 'Unexpected app version' }
+          if ((Get-Content app/package.json -Raw | ConvertFrom-Json).version -ne '0.1.19') { throw 'Unexpected app version' }
+          if ((Get-FileHash app/dist/omi-logo.png -Algorithm SHA256).Hash -ine '1957e92a72047c8dca823f459d52edb120b346fa640465bc6d35342015d74321') { throw 'App does not contain the exact approved logo' }
 
       - name: Install build tools
         working-directory: app
@@ -48,12 +49,12 @@ jobs:
         shell: pwsh
         run: |
           $releaseDir = 'app/out-omi/make/squirrel.windows/x64'
-          $package = Get-Item "$releaseDir/OMI-0.1.17-full.nupkg"
+          $package = Get-Item "$releaseDir/OMI-0.1.19-full.nupkg"
           $entry = (Get-Content "$releaseDir/RELEASES" -Raw).Trim()
           $expected = '{0} {1} {2}' -f (Get-FileHash $package.FullName -Algorithm SHA1).Hash, $package.Name, $package.Length
           if ($entry -ine $expected) { throw 'RELEASES hash or size does not match update package' }
           if ((Get-Item "$releaseDir/OMI-Instalar.exe").Length -lt 1000000) { throw 'Installer is missing or incomplete' }
-          if ((Get-Item 'app/out-omi/make/zip/win32/x64/OMI-win32-x64-0.1.17.zip').Length -lt 1000000) { throw 'Portable ZIP is missing or incomplete' }
+          if ((Get-Item 'app/out-omi/make/zip/win32/x64/OMI-win32-x64-0.1.19.zip').Length -lt 1000000) { throw 'Portable ZIP is missing or incomplete' }
 
       - name: Publish complete update
         shell: pwsh
@@ -62,23 +63,23 @@ jobs:
         run: |
           $releases = gh api "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" | ConvertFrom-Json
           if ($LASTEXITCODE -ne 0) { throw 'Could not check existing releases' }
-          if ($releases | Where-Object tag_name -eq 'v0.1.17') { throw 'Release v0.1.17 already exists; inspect before replacing it' }
-          gh release create v0.1.17 --repo $env:GITHUB_REPOSITORY --draft --title 'OMI 0.1.17' --notes 'Nuevo logo de OMI e icono con imagotipo y fondo transparente.'
+          if ($releases | Where-Object tag_name -eq 'v0.1.19') { throw 'Release v0.1.19 already exists; inspect before replacing it' }
+          gh release create v0.1.19 --repo $env:GITHUB_REPOSITORY --draft --title 'OMI 0.1.19' --notes 'Ordena la cabecera de la barra lateral y separa la marca OMI de la identidad de la organización.'
           if ($LASTEXITCODE -ne 0) { throw 'Could not create draft release' }
-          gh release upload v0.1.17 app/out-omi/make/squirrel.windows/x64/OMI-Instalar.exe app/out-omi/make/squirrel.windows/x64/RELEASES app/out-omi/make/squirrel.windows/x64/OMI-0.1.17-full.nupkg app/out-omi/make/zip/win32/x64/OMI-win32-x64-0.1.17.zip --repo $env:GITHUB_REPOSITORY
+          gh release upload v0.1.19 app/out-omi/make/squirrel.windows/x64/OMI-Instalar.exe app/out-omi/make/squirrel.windows/x64/RELEASES app/out-omi/make/squirrel.windows/x64/OMI-0.1.19-full.nupkg --repo $env:GITHUB_REPOSITORY
           if ($LASTEXITCODE -ne 0) { throw 'Could not upload all release assets' }
-          $release = gh release view v0.1.17 --repo $env:GITHUB_REPOSITORY --json assets | ConvertFrom-Json
+          $release = gh release view v0.1.19 --repo $env:GITHUB_REPOSITORY --json assets | ConvertFrom-Json
           if ($LASTEXITCODE -ne 0) { throw 'Could not verify uploaded assets' }
-          foreach ($name in @('OMI-Instalar.exe', 'RELEASES', 'OMI-0.1.17-full.nupkg', 'OMI-win32-x64-0.1.17.zip')) {
+          foreach ($name in @('OMI-Instalar.exe', 'RELEASES', 'OMI-0.1.19-full.nupkg')) {
             if (-not ($release.assets | Where-Object { $_.name -eq $name -and $_.size -gt 0 })) { throw "Missing uploaded asset: $name" }
           }
-          gh release edit v0.1.17 --repo $env:GITHUB_REPOSITORY --draft=false --latest
+          gh release edit v0.1.19 --repo $env:GITHUB_REPOSITORY --draft=false --latest
           if ($LASTEXITCODE -ne 0) { throw 'Could not publish release' }
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: OMI-Windows-0.1.17
+          name: OMI-Windows-0.1.19
           path: app/out-omi/make/**
           if-no-files-found: ignore
           retention-days: 7
