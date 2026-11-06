@@ -1,0 +1,90 @@
+name: Publish OMI 0.1.21 for macOS
+
+on:
+  push:
+    paths:
+      - 'build-input/OMI-mac-build-input-0.1.21.zip'
+      - 'build-input/OMI-mac-build-input-0.1.21.zip.sha256'
+      - '.github/workflows/publish-macos.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-release-0.1.21
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: macos-14
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify and unpack compiled application
+        run: |
+          (cd build-input && shasum -a 256 -c OMI-mac-build-input-0.1.21.zip.sha256)
+          mkdir app
+          cd app
+          unzip -q ../build-input/OMI-mac-build-input-0.1.21.zip
+          node -e "if (require('./package.json').version !== '0.1.21') process.exit(1)"
+          test -f dist/index.html
+          test -f electron/main.cjs
+      - name: Create macOS icon
+        working-directory: app
+        run: |
+          mkdir electron/assets/omi.iconset
+          for size in 16 32 128 256 512; do
+            sips -z "$size" "$size" electron/assets/omi-icon.png --out "electron/assets/omi.iconset/icon_${size}x${size}.png" >/dev/null
+            twice=$((size * 2))
+            sips -z "$twice" "$twice" electron/assets/omi-icon.png --out "electron/assets/omi.iconset/icon_${size}x${size}@2x.png" >/dev/null
+          done
+          iconutil -c icns electron/assets/omi.iconset -o electron/assets/omi.icns
+      - name: Install packaging tools
+        working-directory: app
+        run: npm ci --no-audit --no-fund
+      - name: Build ${{ matrix.arch }} application
+        working-directory: app
+        run: npx electron-forge make --platform darwin --arch ${{ matrix.arch }}
+      - name: Verify and name release archive
+        working-directory: app
+        run: |
+          archive="out/make/zip/darwin/${{ matrix.arch }}/OMI-darwin-${{ matrix.arch }}-0.1.21.zip"
+          test -s "$archive"
+          unzip -tq "$archive"
+          cp "$archive" "../OMI-macOS-${{ matrix.arch }}.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OMI-macOS-${{ matrix.arch }}
+          path: OMI-macOS-${{ matrix.arch }}.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: OMI-macOS-*
+          merge-multiple: true
+      - name: Publish both macOS packages to existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test -s OMI-macOS-arm64.zip
+          test -s OMI-macOS-x64.zip
+          gh release view v0.1.21 --repo "$GITHUB_REPOSITORY" >/dev/null
+          gh release upload v0.1.21 OMI-macOS-arm64.zip OMI-macOS-x64.zip --repo "$GITHUB_REPOSITORY"
+          gh release view v0.1.21 --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fx 'OMI-macOS-arm64.zip'
+          gh release view v0.1.21 --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fx 'OMI-macOS-x64.zip'
+
