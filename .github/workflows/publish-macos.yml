@@ -34,8 +34,24 @@ jobs:
           actual=$(shasum -a 256 build-input/OMI-mac-build-input-0.1.21.zip | awk '{print $1}')
           test "$expected" = "$actual"
           mkdir app
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          archive = 'build-input/OMI-mac-build-input-0.1.21.zip'
+          root = Path('app')
+          with ZipFile(archive) as source:
+              for item in source.infolist():
+                  parts = Path(item.filename.replace('\\', '/')).parts
+                  if not parts or '..' in parts or parts[0] in ('/', '\\'):
+                      raise ValueError(f'Unsafe ZIP entry: {item.filename}')
+                  target = root.joinpath(*parts)
+                  if item.is_dir():
+                      target.mkdir(parents=True, exist_ok=True)
+                  else:
+                      target.parent.mkdir(parents=True, exist_ok=True)
+                      target.write_bytes(source.read(item))
+          PY
           cd app
-          unzip -q ../build-input/OMI-mac-build-input-0.1.21.zip
           node -e "if (require('./package.json').version !== '0.1.21') process.exit(1)"
           test -f dist/index.html
           test -f electron/main.cjs
